@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Tenant Dashboard — SRMS</title>
+  <link rel="stylesheet" href="../css/style.css"/>
+  <style>
+    .pay-now-btn{width:100%;padding:16px;background:linear-gradient(135deg,#00d4aa,#00b894);color:#000;border:none;border-radius:12px;font-size:16px;font-weight:800;cursor:pointer;transition:all .2s;font-family:'Syne',sans-serif;box-shadow:0 4px 20px rgba(0,212,170,.3);}
+    .pay-now-btn:hover{transform:translateY(-2px);box-shadow:0 8px 30px rgba(0,212,170,.4);}
+    .pay-now-btn:disabled{opacity:.6;cursor:not-allowed;transform:none;}
+    .amount-badge{background:linear-gradient(135deg,rgba(0,212,170,.15),rgba(0,212,170,.05));border:1px solid rgba(0,212,170,.3);border-radius:12px;padding:20px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;}
+    .success-screen{text-align:center;padding:30px;background:rgba(16,185,129,.05);border:1px solid rgba(16,185,129,.2);border-radius:14px;}
+    /* Payment Modal */
+    .pay-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:500;align-items:center;justify-content:center;backdrop-filter:blur(6px);}
+    .pay-modal.open{display:flex;}
+    .pay-modal-box{background:#fff;border-radius:16px;width:420px;max-width:95vw;overflow:hidden;animation:popIn .2s ease;}
+    .pay-modal-head{background:#0d47a1;padding:20px 24px;color:#fff;display:flex;align-items:center;gap:12px;}
+    .pay-modal-head img{width:120px;}
+    .pay-modal-body{padding:24px;}
+    .pay-modal-amount{background:#f5f5f5;border-radius:8px;padding:14px 18px;margin-bottom:18px;text-align:center;}
+    .pay-modal-amount .amt{font-size:28px;font-weight:800;color:#0d47a1;}
+    .pay-modal-amount .lbl{font-size:12px;color:#666;margin-bottom:4px;}
+    .pay-tabs{display:flex;border-bottom:2px solid #eee;margin-bottom:16px;}
+    .pay-tab{flex:1;padding:10px;text-align:center;font-size:13px;font-weight:600;color:#666;cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px;transition:all .2s;}
+    .pay-tab.active{color:#0d47a1;border-bottom-color:#0d47a1;}
+    .pay-input{width:100%;padding:11px 13px;border:1px solid #ddd;border-radius:8px;font-size:14px;outline:none;margin-bottom:12px;transition:border .2s;}
+    .pay-input:focus{border-color:#0d47a1;}
+    .pay-input-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+    .pay-submit-btn{width:100%;padding:14px;background:#0d47a1;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;transition:all .2s;margin-top:6px;}
+    .pay-submit-btn:hover{background:#1565c0;}
+    .pay-submit-btn:disabled{opacity:.6;cursor:not-allowed;}
+    .pay-secure{text-align:center;color:#999;font-size:11px;margin-top:10px;display:flex;align-items:center;justify-content:center;gap:5px;}
+    .upi-apps{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;}
+    .upi-app{padding:6px 14px;border:1px solid #ddd;border-radius:6px;font-size:12px;cursor:pointer;transition:all .2s;color:#333;}
+    .upi-app:hover{border-color:#0d47a1;color:#0d47a1;}
+    .pay-modal-close{position:absolute;top:12px;right:16px;background:none;border:none;color:#fff;font-size:20px;cursor:pointer;}
+  </style>
+</head>
+<body>
+<nav class="navbar">
+  <div class="nav-logo">🏠 Smart Rental Management System</div>
+  <div class="nav-right">
+    <div class="nav-user">Welcome, <strong id="nav-name">—</strong> (Tenant)</div>
+    <button class="btn-logout" onclick="logout()">↩ Logout</button>
+  </div>
+</nav>
+<div class="app-body">
+  <aside class="sidebar">
+    <div class="sidebar-label">Menu</div>
+    <div class="si active" onclick="showPage('dashboard')"><span>📊</span><span>Dashboard</span></div>
+    <div class="si"        onclick="showPage('myrent')"><span>💳</span><span>Pay Rent</span></div>
+    <div class="si"        onclick="showPage('mymaint')"><span>🔧</span><span>Maintenance</span></div>
+    <div class="si"        onclick="showPage('history')"><span>📋</span><span>History</span></div>
+  </aside>
+  <main class="main" id="main-content"></main>
+</div>
+
+<!-- PAYMENT MODAL -->
+<div class="pay-modal" id="pay-modal">
+  <div class="pay-modal-box" style="position:relative;">
+    <div class="pay-modal-head">
+      <div>
+        <div style="font-size:18px;font-weight:800;">Secure Payment</div>
+        <div style="font-size:12px;opacity:.8;">Smart Rental Management System</div>
+      </div>
+      <button class="pay-modal-close" onclick="closePayModal()">✕</button>
+    </div>
+    <div class="pay-modal-body">
+      <div class="pay-modal-amount">
+        <div class="lbl">Amount to Pay</div>
+        <div class="amt" id="modal-amount">₹0</div>
+        <div style="font-size:12px;color:#666;margin-top:3px;" id="modal-month">—</div>
+      </div>
+
+      <!-- TABS -->
+      <div class="pay-tabs">
+        <div class="pay-tab active" onclick="switchPayTab('upi',this)">📱 UPI</div>
+        <div class="pay-tab" onclick="switchPayTab('card',this)">💳 Card</div>
+        <div class="pay-tab" onclick="switchPayTab('nb',this)">🏦 Net Banking</div>
+      </div>
+
+      <!-- UPI TAB -->
+      <div id="tab-upi">
+        <div class="upi-apps">
+          <div class="upi-app" onclick="document.getElementById('upi-id').value='priya@oksbi'">GPay</div>
+          <div class="upi-app" onclick="document.getElementById('upi-id').value='priya@ybl'">PhonePe</div>
+          <div class="upi-app" onclick="document.getElementById('upi-id').value='priya@paytm'">Paytm</div>
+          <div class="upi-app" onclick="document.getElementById('upi-id').value='priya@upi'">BHIM</div>
+        </div>
+        <input class="pay-input" id="upi-id" placeholder="Enter UPI ID (e.g. name@upi)"/>
+      </div>
+
+      <!-- CARD TAB -->
+      <div id="tab-card" style="display:none;">
+        <input class="pay-input" id="card-no" placeholder="Card Number: 4111 1111 1111 1111" maxlength="19"
+          oninput="this.value=this.value.replace(/\D/g,'').replace(/(.{4})/g,'$1 ').trim()"/>
+        <div class="pay-input-row">
+          <input class="pay-input" id="card-exp" placeholder="Expiry: 12/26" maxlength="5"/>
+          <input class="pay-input" id="card-cvv" placeholder="CVV: 123" maxlength="3" type="password"/>
+        </div>
+        <input class="pay-input" id="card-name" placeholder="Name on Card"/>
+        <div style="background:#fff8e1;border:1px solid #ffe082;border-radius:7px;padding:9px;font-size:11px;color:#f57f17;margin-top:4px;">
+          🧪 Test Card: <b>4111 1111 1111 1111</b> | Exp: <b>12/26</b> | CVV: <b>123</b>
+        </div>
+      </div>
+
+      <!-- NET BANKING TAB -->
+      <div id="tab-nb" style="display:none;">
+        <select class="pay-input" id="nb-bank">
+          <option>Select Your Bank</option>
+          <option>State Bank of India</option>
+          <option>HDFC Bank</option>
+          <option>ICICI Bank</option>
+          <option>Axis Bank</option>
+          <option>Kotak Bank</option>
+          <option>Punjab National Bank</option>
+        </select>
+      </div>
+
+      <button class="pay-submit-btn" id="pay-submit-btn" onclick="submitPayment()">
+        🔒 Pay Now Securely
+      </button>
+      <div class="pay-secure">🔐 256-bit SSL Encrypted · Safe & Secure</div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('modal')">✕</button>
+    <div id="modal-body"></div>
+  </div>
+</div>
+<div id="toast"></div>
+<script src="../js/api.js"></script>
+<script>
+if (!requireAuth('tenant')) {}
+const user = getUser();
+document.getElementById('nav-name').textContent = user.name || 'Tenant';
+function logout() { clearAuth(); window.location.href = 'login.html'; }
+
+let _currentPaymentId = null;
+
+function showPage(pg) {
+  document.querySelectorAll('.si').forEach(s => s.classList.remove('active'));
+  const idx = ['dashboard','myrent','mymaint','history'];
+  document.querySelectorAll('.si')[idx.indexOf(pg)]?.classList.add('active');
+  ({dashboard:loadDashboard,myrent:loadMyRent,mymaint:loadMyMaint,history:loadHistory})[pg]?.();
+}
+function setMain(h) { document.getElementById('main-content').innerHTML = `<div class="fade-up">${h}</div>`; }
+
+// ══ PAYMENT MODAL ════════════════════════════
+function switchPayTab(tab, el) {
+  document.querySelectorAll('.pay-tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  ['upi','card','nb'].forEach(t => {
+    document.getElementById('tab-'+t).style.display = t===tab ? 'block' : 'none';
+  });
+}
+
+function closePayModal() {
+  document.getElementById('pay-modal').classList.remove('open');
+  const btn = document.getElementById('pay-submit-btn');
+  if(btn){btn.textContent='🔒 Pay Now Securely';btn.disabled=false;}
+}
+
+async function openPaymentModal() {
+  const btn = document.getElementById('pay-btn');
+  if(btn){btn.textContent='⏳ Loading...';btn.disabled=true;}
+  try {
+    const res = await POST('/razorpay/create-order', {});
+    _currentPaymentId = res.payment.id;
+    document.getElementById('modal-amount').textContent = '₹' + Number(res.payment.amount).toLocaleString('en-IN');
+    document.getElementById('modal-month').textContent  = res.payment.month;
+    document.getElementById('pay-modal').classList.add('open');
+    if(btn){btn.textContent='💳 Pay via Payment Gateway';btn.disabled=false;}
+  } catch(err) {
+    toast('❌ '+err.message,'error');
+    if(btn){btn.textContent='💳 Pay via Payment Gateway';btn.disabled=false;}
+  }
+}
+
+async function submitPayment() {
+  const activeTab = document.querySelector('.pay-tab.active')?.textContent?.trim()||'';
+  let valid = false;
+
+  if(activeTab.includes('UPI')) {
+    const upiId = document.getElementById('upi-id')?.value?.trim();
+    if(!upiId||!upiId.includes('@')) return toast('Enter valid UPI ID!','error');
+    valid = true;
+  } else if(activeTab.includes('Card')) {
+    const num  = document.getElementById('card-no')?.value?.trim();
+    const exp  = document.getElementById('card-exp')?.value?.trim();
+    const cvv  = document.getElementById('card-cvv')?.value?.trim();
+    const name = document.getElementById('card-name')?.value?.trim();
+    if(!num||!exp||!cvv||!name) return toast('Fill all card details!','error');
+    if(num.replace(/\s/g,'').length < 16) return toast('Enter valid card number!','error');
+    valid = true;
+  } else if(activeTab.includes('Net Banking')) {
+    const bank = document.getElementById('nb-bank')?.value;
+    if(!bank||bank==='Select Your Bank') return toast('Please select a bank!','error');
+    valid = true;
+  }
+
+  if(!valid) return;
+
+  const btn = document.getElementById('pay-submit-btn');
+  if(btn){btn.textContent='⏳ Processing...';btn.disabled=true;}
+
+  // Simulate 2 second processing
+  await new Promise(r => setTimeout(r, 2000));
+
+  try {
+    const verify = await POST('/razorpay/verify-payment', {
+      paymentDbId: _currentPaymentId,
+      razorpay_order_id:   'order_'+Date.now(),
+      razorpay_payment_id: 'pay_'+Date.now(),
+      razorpay_signature:  'sig_'+Date.now()
+    });
+
+    if(verify.success) {
+      closePayModal();
+      toast('🎉 '+verify.message,'success');
+      setTimeout(()=>loadMyRent(), 1000);
+    }
+  } catch(err) {
+    toast('❌ '+err.message,'error');
+    if(btn){btn.textContent='🔒 Pay Now Securely';btn.disabled=false;}
+  }
+}
+
+// ══ DASHBOARD ════════════════════════════════
+async function loadDashboard() {
+  try {
+    const {data:s}      = await GET('/dashboard/tenant');
+    const {data:maints} = await GET('/maintenance/my');
+    const {data:pays}   = await GET('/payments/my');
+    const pending = pays.find(p => p.status==='pending'||p.status==='overdue');
+    setMain(`
+      <div class="page-hd"><h1>Dashboard 📊</h1><p>Welcome, ${user.name}!</p></div>
+      ${pending?`
+        <div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.3);border-radius:10px;padding:14px 18px;margin-bottom:18px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+          <div><div style="font-weight:700;font-size:14px;color:var(--yellow);">⚠️ Rent Due — ${pending.month}</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px;">${formatINR(pending.amount)} · ${pending.status.toUpperCase()}</div></div>
+          <button class="btn btn-accent" onclick="showPage('myrent')">💳 Pay Now →</button>
+        </div>`:
+        `<div style="background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.3);border-radius:10px;padding:14px 18px;margin-bottom:18px;">
+          <div style="font-weight:700;color:var(--success);">✅ All Rents Paid!</div></div>`}
+      <div class="stats" style="grid-template-columns:repeat(3,1fr)">
+        <div class="stat-card teal"><div class="stat-lbl">Monthly Rent</div><div class="stat-val">${formatINR(s.tenant.monthlyRent)}</div><div class="stat-sub">${s.tenant.unit}</div></div>
+        <div class="stat-card green"><div class="stat-lbl">Total Paid</div><div class="stat-val">${formatINR(s.payments.totalPaid)}</div><div class="stat-sub">${s.payments.paid} payments</div></div>
+        <div class="stat-card blue"><div class="stat-lbl">Open Requests</div><div class="stat-val">${s.maintenance.open}</div><div class="stat-sub">${s.maintenance.inProgress} in progress</div></div>
+      </div>
+      <div class="pay-hero">
+        <div class="pay-lbl">Your Property</div>
+        <div class="pay-amt">${formatINR(s.tenant.monthlyRent)}<span style="font-size:14px;font-weight:400;color:var(--muted);"> /month</span></div>
+        <div class="pay-info-grid">
+          <div class="pay-info-item"><div class="pay-info-label">Property</div><div class="pay-info-val">${s.tenant.property?.name}</div></div>
+          <div class="pay-info-item"><div class="pay-info-label">Unit</div><div class="pay-info-val">${s.tenant.unit}</div></div>
+          <div class="pay-info-item"><div class="pay-info-label">Status</div><div class="pay-info-val">
+            <span class="badge badge-${pending?'pending':'paid'}">${pending?'PENDING':'PAID'}</span>
+          </div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Maintenance <button class="btn btn-ghost btn-sm" onclick="showPage('mymaint')">View All →</button></div>
+        ${maints.slice(0,3).map(m=>`
+          <div class="maint-card">
+            <div class="maint-card-head">
+              <div><div class="maint-card-title">${m.title}</div>
+              <div class="maint-card-meta" style="margin-top:3px;">📅 ${m.createdAt?.split('T')[0]}</div></div>
+              <span class="badge badge-${m.status==='open'?'open':m.status==='in-progress'?'progress':'done'}">${m.status}</span>
+            </div>
+            <div class="maint-card-desc">${m.description}</div>
+            ${m.landlordNote?`<div class="maint-card-note">📝 ${m.landlordNote}</div>`:''}
+          </div>`).join('')||'<div class="empty"><div class="empty-icon">🎉</div><p>No requests!</p></div>'}
+      </div>`);
+  } catch(err){toast('❌ '+err.message,'error');}
+}
+
+// ══ PAY RENT ═════════════════════════════════
+async function loadMyRent() {
+  try {
+    const {data:pays} = await GET('/payments/my');
+    const {data:t}    = await GET('/tenants/my');
+    const pending = pays.find(p => p.status==='pending'||p.status==='overdue');
+    setMain(`
+      <div class="page-hd"><h1>Pay Rent 💳</h1><p>Pay your monthly rent securely.</p></div>
+      <div class="pay-hero">
+        <div class="pay-lbl">Monthly Rent</div>
+        <div class="pay-amt">${formatINR(t.monthlyRent)}</div>
+        <div class="pay-info-grid">
+          <div class="pay-info-item"><div class="pay-info-label">Property</div><div class="pay-info-val">${t.property?.name}</div></div>
+          <div class="pay-info-item"><div class="pay-info-label">Unit</div><div class="pay-info-val">${t.unit}</div></div>
+          <div class="pay-info-item"><div class="pay-info-label">Status</div><div class="pay-info-val">
+            <span class="badge badge-${pending?pending.status:'paid'}">${pending?pending.status.toUpperCase():'PAID'}</span>
+          </div></div>
+        </div>
+      </div>
+      ${pending?`
+      <div class="card" style="border-color:rgba(0,212,170,.25);">
+        <div class="card-title" style="color:var(--accent);">💳 Pay Now — ${pending.month}</div>
+        <div class="amount-badge">
+          <div>
+            <div style="font-size:11px;color:var(--muted);">Amount Due</div>
+            <div style="font-family:'Syne',sans-serif;font-size:36px;font-weight:800;color:var(--accent);">${formatINR(pending.amount)}</div>
+            <div style="font-size:11px;color:var(--muted);">${pending.month}</div>
+          </div>
+          <div style="font-size:52px;">🏠</div>
+        </div>
+        <button class="pay-now-btn" id="pay-btn" onclick="openPaymentModal()">
+          💳 Pay via Payment Gateway
+        </button>
+        <div style="background:rgba(79,142,247,.07);border:1px solid rgba(79,142,247,.2);border-radius:10px;padding:12px;margin-top:12px;font-size:12px;color:var(--blue);">
+          ℹ️ Supports UPI, Credit/Debit Card, Net Banking & Wallets.
+        </div>
+      </div>`:`
+      <div style="text-align:center;padding:30px;background:rgba(16,185,129,.05);border:1px solid rgba(16,185,129,.2);border-radius:14px;">
+        <div style="font-size:52px;margin-bottom:12px;">✅</div>
+        <div style="font-family:'Syne',sans-serif;font-size:22px;font-weight:800;color:var(--success);">Rent Paid!</div>
+        <div style="color:var(--muted);font-size:13px;margin-top:6px;">${pays[0]?.month} — ${formatINR(pays[0]?.amount||0)}</div>
+        <div style="color:var(--muted);font-size:12px;margin-top:3px;">Paid on ${pays[0]?.paidDate?.split('T')[0]||''}</div>
+        ${pays[0]?.razorpayPaymentId?`<div style="margin-top:10px;font-size:11px;color:var(--blue);">TxnID: ${pays[0].razorpayPaymentId}</div>`:''}
+      </div>`}
+      <div class="card" style="margin-top:16px;">
+        <div class="card-title">Payment History</div>
+        <table>
+          <thead><tr><th>Month</th><th>Amount</th><th>Status</th><th>Paid On</th><th>Transaction ID</th></tr></thead>
+          <tbody>${pays.map(p=>`<tr>
+            <td><strong>${p.month}</strong></td>
+            <td>${formatINR(p.amount)}</td>
+            <td><span class="badge badge-${p.status}">${p.status.toUpperCase()}</span></td>
+            <td>${p.paidDate?p.paidDate.split('T')[0]:'—'}</td>
+            <td style="font-size:11px;color:var(--muted);">${p.razorpayPaymentId||'—'}</td>
+          </tr>`).join('')}</tbody>
+        </table>
+      </div>`);
+  } catch(err){toast('❌ '+err.message,'error');}
+}
+
+// ══ MAINTENANCE ══════════════════════════════
+async function loadMyMaint() {
+  const {data} = await GET('/maintenance/my');
+  setMain(`
+    <div class="page-hd"><h1>Maintenance 🔧</h1><p>Submit and track your requests.</p></div>
+    <div style="margin-bottom:16px"><button class="btn btn-accent" onclick="modalNewReq()">+ New Request</button></div>
+    ${data.length?data.map(m=>`
+      <div class="maint-card">
+        <div class="maint-card-head">
+          <div><div class="maint-card-title">${m.title}</div>
+          <div class="maint-card-meta" style="margin-top:3px;">📅 ${m.createdAt?.split('T')[0]}</div></div>
+          <span class="badge badge-${m.status==='open'?'open':m.status==='in-progress'?'progress':'done'}">${m.status}</span>
+        </div>
+        <div class="maint-card-desc">${m.description}</div>
+        ${m.landlordNote?`<div class="maint-card-note">📝 Landlord: ${m.landlordNote}</div>`:`<div style="margin-top:7px;font-size:11px;color:var(--muted);">⏳ Awaiting response...</div>`}
+      </div>`).join(''):'<div class="empty"><div class="empty-icon">🎉</div><p>No requests!</p></div>'}
+  `);
+}
+function modalNewReq() {
+  document.getElementById('modal-body').innerHTML = `
+    <div class="modal-title">🔧 New Request</div>
+    <div class="form-group"><label>Title</label><input id="mr-title" placeholder="e.g. Leaking tap"/></div>
+    <div class="form-group"><label>Category</label>
+      <select id="mr-cat"><option>Plumbing</option><option>Electrical</option><option>AC/Appliance</option><option>Carpentry</option><option>Painting</option><option>Other</option></select>
+    </div>
+    <div class="form-group"><label>Description</label><textarea id="mr-desc" placeholder="Describe..."></textarea></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal')">Cancel</button>
+      <button class="btn btn-accent" onclick="submitReq()">Submit</button>
+    </div>`;
+  openModal('modal');
+}
+async function submitReq() {
+  const title=document.getElementById('mr-title').value.trim();
+  const description=document.getElementById('mr-desc').value.trim();
+  const category=document.getElementById('mr-cat').value;
+  if(!title||!description) return toast('Fill all fields!','error');
+  try { await POST('/maintenance',{title,description,category}); closeModal('modal'); toast('✅ Submitted!','success'); loadMyMaint(); }
+  catch(err){toast('❌ '+err.message,'error');}
+}
+
+// ══ HISTORY ══════════════════════════════════
+async function loadHistory() {
+  const {data} = await GET('/payments/my');
+  const totalPaid = data.filter(p=>p.status==='paid').reduce((s,p)=>s+p.amount,0);
+  setMain(`
+    <div class="page-hd"><h1>Payment History 📋</h1></div>
+    <div class="stats" style="grid-template-columns:repeat(3,1fr)">
+      <div class="stat-card green"><div class="stat-lbl">Total Paid</div><div class="stat-val">${formatINR(totalPaid)}</div><div class="stat-sub">${data.filter(p=>p.status==='paid').length} payments</div></div>
+      <div class="stat-card yellow"><div class="stat-lbl">Pending</div><div class="stat-val">${data.filter(p=>p.status==='pending').length}</div><div class="stat-sub">Due</div></div>
+      <div class="stat-card red"><div class="stat-lbl">Overdue</div><div class="stat-val">${data.filter(p=>p.status==='overdue').length}</div><div class="stat-sub">Past due</div></div>
+    </div>
+    <div class="card">
+      <div class="card-title">All Payments</div>
+      ${data.map(p=>`
+        <div class="hist-item">
+          <div class="hist-left">
+            <div class="hist-dot ${p.status}">${p.status==='paid'?'✅':p.status==='pending'?'⏳':'❌'}</div>
+            <div>
+              <div class="hist-month">${p.month}</div>
+              <div class="hist-date">${p.paidDate?'Paid on '+p.paidDate.split('T')[0]:'Not yet paid'}</div>
+              ${p.razorpayPaymentId?`<div style="font-size:10px;color:var(--blue);">TxnID: ${p.razorpayPaymentId}</div>`:''}
+            </div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:15px;">${formatINR(p.amount)}</div>
+            <span class="badge badge-${p.status}">${p.status.toUpperCase()}</span>
+          </div>
+        </div>`).join('')}
+    </div>`);
+}
+
+loadDashboard();
+</script>
+</body>
+</html>

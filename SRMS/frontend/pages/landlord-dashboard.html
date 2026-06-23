@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Landlord Dashboard — SRMS</title>
+  <link rel="stylesheet" href="../css/style.css"/>
+  <style>
+    .alert-warn{background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.3);border-radius:9px;padding:11px 14px;font-size:12px;color:var(--yellow);margin-top:10px;}
+    .alert-success{background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.3);border-radius:9px;padding:11px 14px;font-size:12px;color:var(--success);margin-top:10px;}
+    .refresh-badge{background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.2);border-radius:6px;padding:3px 10px;font-size:11px;color:var(--success);margin-left:8px;}
+  </style>
+</head>
+<body>
+<nav class="navbar">
+  <div class="nav-logo">🏠 Smart Rental Management System</div>
+  <div class="nav-right">
+    <div class="nav-user">Welcome, <strong id="nav-name">—</strong> (Landlord)</div>
+    <button class="btn-logout" onclick="logout()">↩ Logout</button>
+  </div>
+</nav>
+
+<div class="app-body">
+  <aside class="sidebar">
+    <div class="sidebar-label">Menu</div>
+    <div class="si active" onclick="showPage('dashboard')"><span>📊</span><span>Dashboard</span></div>
+    <div class="si"        onclick="showPage('properties')"><span>🏢</span><span>Properties</span></div>
+    <div class="si"        onclick="showPage('tenants')"><span>👥</span><span>Tenants</span></div>
+    <div class="si"        onclick="showPage('payments')"><span>💰</span><span>Payments</span></div>
+    <div class="si"        onclick="showPage('maintenance')"><span>🔧</span><span>Maintenance</span></div>
+    <div class="si"        onclick="showPage('report')"><span>📈</span><span>Reports</span></div>
+  </aside>
+  <main class="main" id="main-content"></main>
+</div>
+
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('modal')">✕</button>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script src="../js/api.js"></script>
+<script>
+if (!requireAuth('landlord')) {}
+const user = getUser();
+document.getElementById('nav-name').textContent = user.name || 'Landlord';
+function logout() { clearAuth(); window.location.href = 'login.html'; }
+
+let _autoRefresh = null;
+
+function showPage(pg) {
+  stopAutoRefresh();
+  document.querySelectorAll('.si').forEach(s => s.classList.remove('active'));
+  const idx = ['dashboard','properties','tenants','payments','maintenance','report'];
+  document.querySelectorAll('.si')[idx.indexOf(pg)]?.classList.add('active');
+  ({dashboard:loadDashboard,properties:loadProperties,tenants:loadTenants,
+    payments:loadPayments,maintenance:loadMaintenance,report:loadReport})[pg]?.();
+}
+function setMain(h) { document.getElementById('main-content').innerHTML = `<div class="fade-up">${h}</div>`; }
+function stopAutoRefresh() { if(_autoRefresh){clearInterval(_autoRefresh);_autoRefresh=null;} }
+
+// ══ DASHBOARD ══════════════════════════════
+async function loadDashboard() {
+  try {
+    const {data:s}    = await GET('/dashboard/landlord');
+    const {data:pays} = await GET('/payments');
+    const {data:maints} = await GET('/maintenance');
+    const march = pays.filter(p => p.month === 'March 2024');
+
+    setMain(`
+      <div class="page-hd"><h1>Dashboard 📊</h1><p>Welcome back, ${user.name}!</p></div>
+      <div class="stats">
+        <div class="stat-card blue"><div class="stat-lbl">Properties</div><div class="stat-val">${s.totalProperties}</div><div class="stat-sub">Total properties</div></div>
+        <div class="stat-card teal"><div class="stat-lbl">Tenants</div><div class="stat-val">${s.totalTenants}</div><div class="stat-sub">Active tenants</div></div>
+        <div class="stat-card green"><div class="stat-lbl">Paid</div><div class="stat-val">${s.payments.paid}</div><div class="stat-sub">${formatINR(s.payments.thisMonthIncome)} collected</div></div>
+        <div class="stat-card yellow"><div class="stat-lbl">Pending/Overdue</div><div class="stat-val">${s.payments.pending+s.payments.overdue}</div><div class="stat-sub">${s.payments.pending} pending, ${s.payments.overdue} overdue</div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">
+          March 2024 — Payment Status
+          <button class="btn btn-ghost btn-sm" onclick="showPage('payments')">View All →</button>
+        </div>
+        <table>
+          <thead><tr><th>Tenant</th><th>Unit</th><th>Amount</th><th>Status</th><th>Paid On</th><th>Actions</th></tr></thead>
+          <tbody>
+            ${march.map(p=>`
+              <tr>
+                <td><strong>${p.tenant?.user?.name||'—'}</strong></td>
+                <td>${p.tenant?.unit||'—'}</td>
+                <td>${formatINR(p.amount)}</td>
+                <td><span class="badge badge-${p.status}">${p.status.toUpperCase()}</span></td>
+                <td>${p.paidDate?p.paidDate.split('T')[0]:'—'}</td>
+                <td style="display:flex;gap:5px;flex-wrap:wrap;">
+                  ${p.status!=='paid'
+                    ?`<button class="btn btn-success btn-sm" onclick="markPaid('${p._id}')">✔ Mark Paid</button>
+                      <button class="btn btn-warning btn-sm" onclick="sendReminder('${p._id}','${p.tenant?.user?.name}','${p.tenant?.user?.email}')">📧 Remind</button>`
+                    :`<span style="color:var(--success);font-size:11px;">✓ Paid on ${p.paidDate?.split('T')[0]}</span>`}
+                </td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Recent Maintenance <button class="btn btn-ghost btn-sm" onclick="showPage('maintenance')">View All →</button></div>
+        ${maints.slice(0,3).map(m=>`
+          <div class="maint-card">
+            <div class="maint-card-head">
+              <div><div class="maint-card-title">${m.title}</div>
+              <div class="maint-card-meta" style="margin-top:3px;">👤 ${m.tenant?.user?.name} · ${m.tenant?.unit}</div></div>
+              <span class="badge badge-${m.status==='open'?'open':m.status==='in-progress'?'progress':'done'}">${m.status}</span>
+            </div>
+            <div class="maint-card-desc">${m.description}</div>
+          </div>`).join('')}
+      </div>`);
+  } catch(err) { toast('❌ '+err.message,'error'); }
+}
+
+// ══ PROPERTIES ═════════════════════════════
+async function loadProperties() {
+  const {data} = await GET('/properties');
+  setMain(`
+    <div class="page-hd"><h1>Properties 🏢</h1><p>Manage your apartments and houses.</p></div>
+    <div style="margin-bottom:16px"><button class="btn btn-accent" onclick="modalAddProperty()">+ Add Property</button></div>
+    <div class="prop-grid">
+      ${data.map(p=>`
+        <div class="prop-card">
+          <div class="prop-icon">${p.type==='Villa'?'🏡':p.type==='House'?'🏠':'🏢'}</div>
+          <div class="prop-name">${p.name}</div>
+          <div class="prop-addr">📍 ${p.address}, ${p.city||''}</div>
+          <div class="prop-tags">
+            <span class="prop-tag">🏠 ${p.totalUnits} Units</span>
+            <span class="prop-tag">💰 ${formatINR(p.monthlyRent)}/mo</span>
+            <span class="prop-tag">${p.type}</span>
+          </div>
+          <div style="margin-top:10px">
+            <button class="btn btn-danger btn-sm" onclick="deleteProperty('${p._id}','${p.name}')">🗑 Delete</button>
+          </div>
+        </div>`).join('')}
+    </div>`);
+}
+function modalAddProperty() {
+  document.getElementById('modal-body').innerHTML = `
+    <div class="modal-title">🏢 Add New Property</div>
+    <div class="form-group"><label>Property Name</label><input id="pp-name" placeholder="Green Valley Apt"/></div>
+    <div class="form-group"><label>Address</label><input id="pp-addr" placeholder="Plot 45, Madhapur"/></div>
+    <div class="form-row">
+      <div class="form-group"><label>City</label><input id="pp-city" placeholder="Hyderabad"/></div>
+      <div class="form-group"><label>Type</label><select id="pp-type"><option>Apartment</option><option>Villa</option><option>House</option><option>PG</option></select></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Total Units</label><input id="pp-units" type="number" placeholder="6"/></div>
+      <div class="form-group"><label>Monthly Rent (₹)</label><input id="pp-rent" type="number" placeholder="12000"/></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal')">Cancel</button>
+      <button class="btn btn-accent" onclick="addProperty()">Add Property</button>
+    </div>`;
+  openModal('modal');
+}
+async function addProperty() {
+  const name=document.getElementById('pp-name').value.trim();
+  const address=document.getElementById('pp-addr').value.trim();
+  const city=document.getElementById('pp-city').value.trim();
+  const type=document.getElementById('pp-type').value;
+  const totalUnits=parseInt(document.getElementById('pp-units').value);
+  const monthlyRent=parseInt(document.getElementById('pp-rent').value);
+  if(!name||!address||!totalUnits||!monthlyRent) return toast('Fill all fields!','error');
+  try {
+    await POST('/properties',{name,address,city,type,totalUnits,monthlyRent});
+    closeModal('modal'); toast('✅ Property added!','success'); loadProperties();
+  } catch(err){toast('❌ '+err.message,'error');}
+}
+async function deleteProperty(id,name) {
+  if(!confirm(`Delete "${name}"?`)) return;
+  try { await DELETE(`/properties/${id}`); toast('🗑 Deleted!','info'); loadProperties(); }
+  catch(err){toast('❌ '+err.message,'error');}
+}
+
+// ══ TENANTS ════════════════════════════════
+async function loadTenants() {
+  const {data} = await GET('/tenants');
+  setMain(`
+    <div class="page-hd"><h1>Tenants 👥</h1><p>Manage all your tenants.</p></div>
+    <div style="margin-bottom:16px"><button class="btn btn-accent" onclick="modalAddTenant()">+ Add Tenant</button></div>
+    <div class="card">
+      <table>
+        <thead><tr><th>Name</th><th>Phone</th><th>Property</th><th>Unit</th><th>Rent/mo</th><th>Action</th></tr></thead>
+        <tbody>
+          ${data.map(t=>`
+            <tr>
+              <td><strong>${t.user?.name}</strong><br/><span style="color:var(--muted);font-size:11px;">${t.user?.email}</span></td>
+              <td>${t.user?.phone||'—'}</td>
+              <td>${t.property?.name}</td>
+              <td><span class="badge badge-blue">${t.unit}</span></td>
+              <td>${formatINR(t.monthlyRent)}</td>
+              <td><button class="btn btn-danger btn-sm" onclick="removeTenant('${t._id}','${t.user?.name}')">🗑 Remove</button></td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`);
+}
+async function modalAddTenant() {
+  const {data:props} = await GET('/properties');
+  document.getElementById('modal-body').innerHTML = `
+    <div class="modal-title">👤 Add Tenant</div>
+    <p style="color:var(--muted);font-size:12px;margin-bottom:14px;">Tenant must first register with role "Tenant". Then enter their Email below.</p>
+    <div class="form-group"><label>Tenant Email</label><input id="tt-uid" type="email" placeholder="tenant@email.com"/></div>
+    <div class="form-group"><label>Property</label>
+      <select id="tt-prop">${props.map(p=>`<option value="${p._id}">${p.name}</option>`).join('')}</select>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Unit No.</label><input id="tt-unit" placeholder="A-101"/></div>
+      <div class="form-group"><label>Monthly Rent (₹)</label><input id="tt-rent" type="number" placeholder="12000"/></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal')">Cancel</button>
+      <button class="btn btn-accent" onclick="addTenant()">Add Tenant</button>
+    </div>`;
+  openModal('modal');
+}
+async function addTenant() {
+  const email=document.getElementById('tt-uid').value.trim();
+  const propertyId=document.getElementById('tt-prop').value;
+  const unit=document.getElementById('tt-unit').value.trim();
+  const monthlyRent=parseInt(document.getElementById('tt-rent').value);
+  if(!email||!unit||!monthlyRent) return toast('Fill all fields!','error');
+  try {
+    const res = await POST('/tenants',{email,propertyId,unit,monthlyRent});
+    closeModal('modal'); toast(res.message,'success'); loadTenants();
+  } catch(err){toast('❌ '+err.message,'error');}
+}
+async function removeTenant(id,name) {
+  if(!confirm(`Remove "${name}"?`)) return;
+  try { await DELETE(`/tenants/${id}`); toast('🗑 Removed!','info'); loadTenants(); }
+  catch(err){toast('❌ '+err.message,'error');}
+}
+
+// ══ PAYMENTS ═══════════════════════════════
+async function loadPayments() {
+  const {data} = await GET('/payments');
+  const months=[...new Set(data.map(p=>p.month))];
+  window._allPayments = data;
+
+  setMain(`
+    <div class="page-hd">
+      <h1>Payments 💰</h1>
+      <p>Track all rental payments. <span class="refresh-badge">🔄 Auto-refresh ON</span></p>
+    </div>
+    <div style="margin-bottom:16px;display:flex;gap:9px;flex-wrap:wrap;align-items:center;">
+      <select id="pay-filter" onchange="filterPayments()" style="padding:9px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:var(--fb);outline:none;font-size:13px;">
+        <option value="">All Months</option>
+        ${months.map(m=>`<option>${m}</option>`).join('')}
+      </select>
+      <button class="btn btn-accent" onclick="modalAddPayment()">+ Record Payment</button>
+      <button class="btn btn-ghost" onclick="loadPayments()">🔄 Refresh</button>
+    </div>
+    <div class="card">
+      <table>
+        <thead><tr><th>Tenant</th><th>Month</th><th>Amount</th><th>Status</th><th>Paid On</th><th>Transaction</th><th>Actions</th></tr></thead>
+        <tbody id="pay-body">${renderPayRows(data)}</tbody>
+      </table>
+    </div>`);
+
+  // Auto refresh every 10 seconds
+  stopAutoRefresh();
+  _autoRefresh = setInterval(async () => {
+    try {
+      const {data:fresh} = await GET('/payments');
+      window._allPayments = fresh;
+      const f = document.getElementById('pay-filter')?.value || '';
+      const filtered = f ? fresh.filter(p=>p.month===f) : fresh;
+      const tbody = document.getElementById('pay-body');
+      if(tbody) tbody.innerHTML = renderPayRows(filtered);
+    } catch(e){}
+  }, 10000);
+}
+
+function renderPayRows(list) {
+  if(!list.length) return `<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:28px;">No records found</td></tr>`;
+  return list.map(p=>`
+    <tr>
+      <td><strong>${p.tenant?.user?.name||'—'}</strong><br/><span style="color:var(--muted);font-size:10px;">${p.tenant?.unit||''}</span></td>
+      <td>${p.month}</td>
+      <td>${formatINR(p.amount)}</td>
+      <td><span class="badge badge-${p.status}">${p.status.toUpperCase()}</span></td>
+      <td>${p.paidDate?p.paidDate.split('T')[0]:'—'}</td>
+      <td style="font-size:10px;color:var(--muted);">${p.notes||'—'}</td>
+      <td style="display:flex;gap:5px;flex-wrap:wrap;">
+        ${p.status!=='paid'
+          ?`<button class="btn btn-success btn-sm" onclick="markPaid('${p._id}')">✔ Mark Paid</button>
+            <button class="btn btn-warning btn-sm" onclick="sendReminder('${p._id}','${p.tenant?.user?.name}','${p.tenant?.user?.email}')">📧 Remind</button>`
+          :`<span style="color:var(--success);font-size:11px;">✓ Completed</span>`}
+      </td>
+    </tr>`).join('');
+}
+
+function filterPayments() {
+  const f = document.getElementById('pay-filter')?.value||'';
+  const filtered = f ? window._allPayments.filter(p=>p.month===f) : window._allPayments;
+  document.getElementById('pay-body').innerHTML = renderPayRows(filtered);
+}
+
+async function markPaid(id) {
+  try {
+    await PUT(`/payments/${id}/mark-paid`);
+    toast('✅ Marked as Paid!','success'); loadPayments();
+  } catch(err){toast('❌ '+err.message,'error');}
+}
+
+async function sendReminder(id, name, email) {
+  try {
+    await PUT(`/payments/${id}/remind`);
+    toast(`📧 Reminder sent to ${name}!`,'info');
+  } catch(err){toast('❌ '+err.message,'error');}
+}
+
+async function modalAddPayment() {
+  const {data:tenants} = await GET('/tenants');
+  const {data:props}   = await GET('/properties');
+  document.getElementById('modal-body').innerHTML = `
+    <div class="modal-title">💰 Record Payment</div>
+    <div class="form-group"><label>Tenant</label>
+      <select id="rp-tenant">${tenants.map(t=>`<option value="${t._id}|${t.property?._id}">${t.user?.name} — ${t.unit}</option>`).join('')}</select>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Month</label><input id="rp-month" placeholder="March 2024"/></div>
+      <div class="form-group"><label>Amount (₹)</label><input id="rp-amount" type="number" placeholder="12000"/></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Status</label>
+        <select id="rp-status"><option value="pending">Pending</option><option value="paid">Paid</option><option value="overdue">Overdue</option></select>
+      </div>
+      <div class="form-group"><label>Paid Date</label><input id="rp-date" type="date"/></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal')">Cancel</button>
+      <button class="btn btn-accent" onclick="addPayment()">Record</button>
+    </div>`;
+  openModal('modal');
+}
+
+async function addPayment() {
+  const [tenantId,propertyId] = document.getElementById('rp-tenant').value.split('|');
+  const month  = document.getElementById('rp-month').value;
+  const amount = parseInt(document.getElementById('rp-amount').value);
+  const status = document.getElementById('rp-status').value;
+  const paidDate = document.getElementById('rp-date').value;
+  if(!month||!amount) return toast('Fill all fields!','error');
+  try {
+    await POST('/payments',{tenantId,propertyId,month,amount,status,paidDate});
+    closeModal('modal'); toast('✅ Recorded!','success'); loadPayments();
+  } catch(err){toast('❌ '+err.message,'error');}
+}
+
+// ══ MAINTENANCE ════════════════════════════
+async function loadMaintenance(filter='all') {
+  const url = filter==='all' ? '/maintenance' : `/maintenance?status=${filter}`;
+  const {data} = await GET(url);
+  setMain(`
+    <div class="page-hd"><h1>Maintenance 🔧</h1><p>Track and resolve tenant issues.</p></div>
+    <div style="margin-bottom:16px;display:flex;gap:7px;flex-wrap:wrap;">
+      ${['all','open','in-progress','done'].map(f=>
+        `<button class="btn ${filter===f?'btn-blue':'btn-ghost'} btn-sm" onclick="loadMaintenance('${f}')">${f.charAt(0).toUpperCase()+f.slice(1)}</button>`
+      ).join('')}
+    </div>
+    ${data.length ? data.map(m=>`
+      <div class="maint-card">
+        <div class="maint-card-head">
+          <div>
+            <div class="maint-card-title">${m.title} <span style="color:var(--muted);font-size:11px;">[${m.category}]</span></div>
+            <div class="maint-card-meta" style="margin-top:3px;">👤 ${m.tenant?.user?.name} · ${m.tenant?.unit} · ${m.createdAt?.split('T')[0]}</div>
+          </div>
+          <span class="badge badge-${m.status==='open'?'open':m.status==='in-progress'?'progress':'done'}">${m.status}</span>
+        </div>
+        <div class="maint-card-desc">${m.description}</div>
+        ${m.landlordNote?`<div class="maint-card-note">📝 ${m.landlordNote}</div>`:''}
+        <div class="maint-card-foot"><span></span>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            ${m.status==='open'?`<button class="btn btn-warning btn-sm" onclick="updateMaint('${m._id}','in-progress')">▶ Start Work</button>`:''}
+            ${m.status==='in-progress'?`<button class="btn btn-success btn-sm" onclick="updateMaint('${m._id}','done')">✔ Complete</button>`:''}
+            <button class="btn btn-blue btn-sm" onclick="modalNote('${m._id}','${(m.landlordNote||'').replace(/'/g,'')}')">📝 Note</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteMaint('${m._id}')">🗑</button>
+          </div>
+        </div>
+      </div>`).join('')
+    :'<div class="empty"><div class="empty-icon">🎉</div><p>No requests!</p></div>'}
+  `);
+}
+async function updateMaint(id,status) {
+  try { await PUT(`/maintenance/${id}/status`,{status}); toast(status==='done'?'✅ Complete!':'▶ Started!','success'); loadMaintenance(); }
+  catch(err){toast('❌ '+err.message,'error');}
+}
+function modalNote(id,existing) {
+  document.getElementById('modal-body').innerHTML = `
+    <div class="modal-title">📝 Add Note</div>
+    <div class="form-group"><label>Note for Tenant</label><textarea id="mn-note">${existing}</textarea></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal')">Cancel</button>
+      <button class="btn btn-accent" onclick="saveNote('${id}')">Save</button>
+    </div>`;
+  openModal('modal');
+}
+async function saveNote(id) {
+  const note = document.getElementById('mn-note').value;
+  try { await PUT(`/maintenance/${id}/note`,{note}); closeModal('modal'); toast('📝 Saved!','success'); loadMaintenance(); }
+  catch(err){toast('❌ '+err.message,'error');}
+}
+async function deleteMaint(id) {
+  if(!confirm('Delete?')) return;
+  try { await DELETE(`/maintenance/${id}`); toast('🗑 Deleted!','info'); loadMaintenance(); }
+  catch(err){toast('❌ '+err.message,'error');}
+}
+
+// ══ REPORT ═════════════════════════════════
+async function loadReport() {
+  const {data} = await GET('/payments/report');
+  const total = data.reduce((s,r)=>s+r.totalIncome,0);
+  setMain(`
+    <div class="page-hd"><h1>Income Report 📈</h1><p>Monthly rent collection.</p></div>
+    <div class="stats" style="grid-template-columns:repeat(3,1fr)">
+      <div class="stat-card green"><div class="stat-lbl">Total Collected</div><div class="stat-val">${formatINR(total)}</div><div class="stat-sub">All time</div></div>
+      <div class="stat-card teal"><div class="stat-lbl">Months</div><div class="stat-val">${data.length}</div><div class="stat-sub">Tracked</div></div>
+      <div class="stat-card blue"><div class="stat-lbl">Avg/Month</div><div class="stat-val">${formatINR(data.length?Math.round(total/data.length):0)}</div><div class="stat-sub">Average</div></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Month-wise Income</div>
+      <table>
+        <thead><tr><th>Month</th><th>Payments</th><th>Total Income</th></tr></thead>
+        <tbody>${data.map(r=>`
+          <tr><td><strong>${r._id}</strong></td><td>${r.count} payments</td>
+          <td style="font-family:'Syne',sans-serif;font-weight:700;color:var(--success);">${formatINR(r.totalIncome)}</td></tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`);
+}
+
+loadDashboard();
+</script>
+</body>
+</html>
